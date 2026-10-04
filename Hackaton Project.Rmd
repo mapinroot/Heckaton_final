@@ -1,0 +1,299 @@
+---
+title: "Heckaton Project"
+date: "2026-10-03"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r}
+# ReGround 2035 Scenario Analysis
+# Including growth in excavated soil generation
+
+# ---------------------------------------------------------
+# 1. Baseline assumptions
+# ---------------------------------------------------------
+
+base_year <- 2026
+target_year <- 2035
+
+# Current Auckland excavated soil
+soil_2026 <- 2000000
+
+# Assumed annual growth in excavated soil generation
+# This is a modelling assumption based on future
+# population and construction growth in Auckland.
+soil_growth_rate <- 0.012     # 1.2% per year
+
+# Transport assumptions
+landfill_distance <- 92       # km
+reuse_distance <- 12          # km
+
+# NZ heavy freight emission factor
+emission_factor <- 0.105      # kg CO2-e per tonne-km
+
+# External global benchmark
+global_circular_target <- 0.15
+
+
+# ---------------------------------------------------------
+# 2. Create annual trend from 2026 to 2035
+# ---------------------------------------------------------
+
+trend <- tibble(
+  year = base_year:target_year
+) %>%
+  mutate(
+    
+    # Number of years after baseline
+    years_after_2026 = year - base_year,
+    
+    # Projected total excavated soil
+    total_soil =
+      soil_2026 *
+      (1 + soil_growth_rate)^years_after_2026,
+    
+    # ReGround adoption assumption
+    # Starts at 1% in 2026 and reaches 10% in 2035
+    reground_share =
+      seq(
+        0.01,
+        0.10,
+        length.out = n()
+      ),
+    
+    # Soil redirected to local reuse
+    reused_soil =
+      total_soil *
+      reground_share,
+    
+    # Soil still sent to landfill
+    landfill_soil =
+      total_soil -
+      reused_soil
+  )
+
+
+# ---------------------------------------------------------
+# 3. Business-as-usual emissions
+# ---------------------------------------------------------
+#
+# BAU means:
+# all excavated soil goes through the 92 km disposal route.
+
+trend <- trend %>%
+  mutate(
+    
+    bau_emissions =
+      total_soil *
+      landfill_distance *
+      emission_factor / 1000
+  )
+
+
+# ---------------------------------------------------------
+# 4. ReGround emissions
+# ---------------------------------------------------------
+
+trend <- trend %>%
+  mutate(
+    
+    reuse_emissions =
+      reused_soil *
+      reuse_distance *
+      emission_factor / 1000,
+    
+    landfill_emissions =
+      landfill_soil *
+      landfill_distance *
+      emission_factor / 1000,
+    
+    reground_emissions =
+      reuse_emissions +
+      landfill_emissions
+  )
+
+
+# ---------------------------------------------------------
+# 5. Calculate avoided emissions
+# ---------------------------------------------------------
+
+trend <- trend %>%
+  mutate(
+    
+    emissions_saved =
+      bau_emissions -
+      reground_emissions,
+    
+    reduction_percent =
+      emissions_saved /
+      bau_emissions * 100
+  )
+
+
+# ---------------------------------------------------------
+# 6. View full results
+# ---------------------------------------------------------
+
+print(trend)
+
+
+# ---------------------------------------------------------
+# 7. 2035 summary
+# ---------------------------------------------------------
+
+summary_2035 <- trend %>%
+  filter(year == 2035) %>%
+  transmute(
+    
+    Year = year,
+    
+    `Projected soil generated (t/year)` =
+      round(total_soil, 0),
+    
+    `ReGround share (%)` =
+      round(reground_share * 100, 1),
+    
+    `Soil reused locally (t/year)` =
+      round(reused_soil, 0),
+    
+    `Soil still landfilled (t/year)` =
+      round(landfill_soil, 0),
+    
+    `BAU emissions (t CO2-e/year)` =
+      round(bau_emissions, 1),
+    
+    `ReGround emissions (t CO2-e/year)` =
+      round(reground_emissions, 1),
+    
+    `Emissions saved (t CO2-e/year)` =
+      round(emissions_saved, 1),
+    
+    `Reduction (%)` =
+      round(reduction_percent, 1)
+  )
+
+print(summary_2035)
+
+
+# =========================================================
+# 8. Graph: projected soil generation
+# =========================================================
+
+ggplot(
+  trend,
+  aes(
+    x = year,
+    y = total_soil
+  )
+) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Projected Auckland Excavated Soil Generation",
+    subtitle = "Assuming 1.2% annual growth from 2026 to 2035",
+    x = "Year",
+    y = "Excavated soil (tonnes/year)"
+  ) +
+  theme_minimal()
+
+
+# =========================================================
+# 9. Graph: BAU vs ReGround emissions
+# =========================================================
+
+emission_plot <- trend %>%
+  select(
+    year,
+    bau_emissions,
+    reground_emissions
+  ) %>%
+  pivot_longer(
+    cols = c(
+      bau_emissions,
+      reground_emissions
+    ),
+    names_to = "scenario",
+    values_to = "emissions"
+  ) %>%
+  mutate(
+    scenario = recode(
+      scenario,
+      bau_emissions = "Business as usual",
+      reground_emissions = "With ReGround"
+    )
+  )
+
+ggplot(
+  emission_plot,
+  aes(
+    x = year,
+    y = emissions,
+    linetype = scenario
+  )
+) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Projected Soil Transport Emissions to 2035",
+    subtitle = "Business-as-usual compared with ReGround local reuse",
+    x = "Year",
+    y = "Transport emissions (tonnes CO2-e/year)",
+    linetype = "Scenario"
+  ) +
+  theme_minimal()
+
+
+# =========================================================
+# 10. Graph: annual emissions avoided
+# =========================================================
+
+ggplot(
+  trend,
+  aes(
+    x = year,
+    y = emissions_saved
+  )
+) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Projected Annual Emissions Avoided by ReGround",
+    x = "Year",
+    y = "Avoided emissions (tonnes CO2-e/year)"
+  ) +
+  theme_minimal()
+
+
+# =========================================================
+# 11. Graph: ReGround adoption
+# =========================================================
+
+ggplot(
+  trend,
+  aes(
+    x = year,
+    y = reground_share * 100
+  )
+) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  geom_hline(
+    yintercept = global_circular_target * 100,
+    linetype = "dashed"
+  ) +
+  labs(
+    title = "ReGround Adoption and Circular Material-Use Benchmark",
+    subtitle = "15% is an external global benchmark, not an assumed ReGround target",
+    x = "Year",
+    y = "Percentage (%)"
+  ) +
+  theme_minimal()
+```
+
+
